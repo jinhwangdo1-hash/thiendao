@@ -1,4 +1,0 @@
-plugins { id 'com.android.application' }
-android { namespace 'vn.alarm.pro'; compileSdk 35
- defaultConfig { applicationId 'vn.alarm.pro'; minSdk 26; targetSdk 34; versionCode 1; versionName '1.0' }
-}

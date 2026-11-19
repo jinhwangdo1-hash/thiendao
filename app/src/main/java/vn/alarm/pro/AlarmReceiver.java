@@ -1,3 +1,0 @@
-package vn.alarm.pro;
-import android.content.*;import org.json.*;
-public class AlarmReceiver extends BroadcastReceiver {public void onReceive(Context c,Intent i){int id=i.getIntExtra("id",-1);JSONObject o=Store.get(c,id);if(o==null)return;if(o.optInt("days",127)!=0)Store.schedule(c,o,0);else{Store.put(o,"on",false);Store.update(c,o);}c.startForegroundService(new Intent(c,RingService.class).putExtra("id",id));}}
