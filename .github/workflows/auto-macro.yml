@@ -1,5 +1,8 @@
-name: Xuất APK
-on: [push, workflow_dispatch]
+name: Auto Macro APK
+on:
+  push:
+    branches: [auto-macro]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,8 +15,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - run: gradle assembleDebug
+      - run: gradle -p auto-macro assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: BaoThucProMax-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: AutoMacroProMax-APK
+          path: auto-macro/app/build/outputs/apk/debug/*.apk
