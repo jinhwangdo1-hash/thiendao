@@ -1,0 +1,1 @@
+# AutoClick Pro Max\n\nWindows 10/11. Drag numbered targets to click positions. Press F6 to start or stop. GitHub Actions builds the standalone EXE.\n
