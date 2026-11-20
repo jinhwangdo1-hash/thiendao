@@ -22,38 +22,81 @@ def find(img,name,confidence=.78):
     if template is None or template.shape[0]>img.shape[0] or template.shape[1]>img.shape[1]:return None
     _,score,_,loc=cv2.minMaxLoc(cv2.matchTemplate(img,template,cv2.TM_CCOEFF_NORMED))
     return (loc[0]+template.shape[1]//2,loc[1]+template.shape[0]//2) if score>=confidence else None
-def best_swap(img,region):
+def detect_board(img):
+    """Find bright cyan vertical board borders, return playable 8x8 region."""
+    hsv=cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
+    H,W=hsv.shape[:2]
+    mask=cv2.inRange(hsv,np.array([78,85,115]),np.array([105,255,255]))
+    mask[:int(H*.17),:]=0
+    mask[int(H*.94):,:]=0
+    n,labels,stats,cent=cv2.connectedComponentsWithStats(mask)
+    candidates=[]
+    for x in range(int(W*.24),int(W*.76)):
+        col=mask[int(H*.22):int(H*.89),x]
+        if np.count_nonzero(col)>int(H*.30):candidates.append(x)
+    if len(candidates)<2:return None
+    groups=[]
+    for x in candidates:
+        if not groups or x>groups[-1][-1]+3:groups.append([x])
+        else:groups[-1].append(x)
+    pairs=[(int(np.median(a)),int(np.median(b))) for a in groups for b in groups if b[0]>a[-1] and .28*W<b[0]-a[-1]<.53*W]
+    if not pairs:return None
+    left,right=min(pairs,key=lambda ab:abs((ab[1]-ab[0])-.35*W))
+    # Board square with frame; reference top margin 10px
+    size=right-left-12
+    top=int(H*.24)
+    if size<200 or top+size>H:return None
+    return [left+6,top,size,size]
+def classify_tiles(img,region):
     x,y,w,h=region
-    if min(w,h)<=0 or x<0 or y<0 or x+w>img.shape[1] or y+h>img.shape[0]:return None
-    cells=[]
-    for r in range(8):
-        row=[]
-        for c in range(8):
-            tile=img[y+int((r+.28)*h/8):y+int((r+.72)*h/8),x+int((c+.28)*w/8):x+int((c+.72)*w/8)]
-            row.append(cv2.cvtColor(tile,cv2.COLOR_BGR2HSV).reshape(-1,3).mean(axis=0) if tile.size else np.zeros(3))
-        cells.append(row)
-    colors=np.array(cells)
-    def score(arr):
-        total=0
-        for line in list(arr)+list(arr.transpose(1,0,2)):
-            count=1
-            for i in range(1,8):
-                if np.linalg.norm((line[i]-line[i-1])*[.5,1,.8])<18:count+=1
-                else:
-                    if count>=3:total+=count*count
-                    count=1
-            if count>=3:total+=count*count
-        return total
-    base=score(colors); best=None; high=base
+    hsv=cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
+    grid=np.zeros((8,8),dtype=np.int8)
+    # Category by saturated icon center: pink heart, peach, green star,
+    # cyan yin-yang, violet drop, yellow bowl, sword. Heuristic, needs calibration.
     for r in range(8):
         for c in range(8):
-            for dr,dc in [(0,1),(1,0)]:
+            cx=int(x+(c+.5)*w/8);cy=int(y+(r+.5)*h/8)
+            patch=hsv[max(0,cy-9):cy+9,max(0,cx-9):cx+9]
+            if patch.size==0:return None
+            good=patch[(patch[:,:,1]>85)&(patch[:,:,2]>90)]
+            if len(good)<12:return None
+            hue=np.median(good[:,0])
+            if hue<9 or hue>170:grid[r,c]=0
+            elif hue<22:grid[r,c]=1
+            elif hue<42:grid[r,c]=2
+            elif hue<82:grid[r,c]=3
+            elif hue<112:grid[r,c]=4
+            elif hue<145:grid[r,c]=5
+            else:grid[r,c]=6
+    return grid
+def match_score(grid):
+    total=0
+    for line in list(grid)+list(grid.T):
+        run=1
+        for i in range(1,8):
+            if line[i]==line[i-1]:run+=1
+            else:
+                if run>=3:total+=run*run
+                run=1
+        if run>=3:total+=run*run
+    return total
+def best_swap(img,region):
+    grid=classify_tiles(img,region)
+    if grid is None:return None
+    x,y,w,h=region
+    base=match_score(grid)
+    best=None;score=base
+    for r in range(8):
+        for c in range(8):
+            for dr,dc in [(1,0),(0,1)]:
                 rr,cc=r+dr,c+dc
-                if rr>=8 or cc>=8:continue
-                colors[r,c],colors[rr,cc]=colors[rr,cc].copy(),colors[r,c].copy()
-                s=score(colors)
-                colors[r,c],colors[rr,cc]=colors[rr,cc].copy(),colors[r,c].copy()
-                if s>high:high=s;best=((x+(c+.5)*w/8,y+(r+.5)*h/8),(x+(cc+.5)*w/8,y+(rr+.5)*h/8))
+                if rr>=8 or cc>=8 or grid[r,c]==grid[rr,cc]:continue
+                grid[r,c],grid[rr,cc]=grid[rr,cc],grid[r,c]
+                n=match_score(grid)
+                grid[r,c],grid[rr,cc]=grid[rr,cc],grid[r,c]
+                if n>score:
+                    score=n
+                    best=((x+(c+.5)*w/8,y+(r+.5)*h/8),(x+(cc+.5)*w/8,y+(rr+.5)*h/8))
     return best
 class App:
     def __init__(self):
@@ -97,24 +140,25 @@ class App:
                 w=window(self.cfg['window'])
                 if not w:self.log('Không thấy cửa sổ game: '+self.cfg['window']);self.stop.wait(2);continue
                 img=np.array(pg.screenshot(region=(w.left,w.top,w.width,w.height)).convert('RGB'))[:,:,::-1]
-                board=find(img,'battle')
+                board=detect_board(img)
                 if self.flags['boardauto'].get() and board:
-                    move=best_swap(img,self.cfg['board'])
+                    move=best_swap(img,board)
                     if move:
                         self.log('Đã phát hiện nước ghép'+(' • chế độ thử' if self.flags['dry'].get() else ''))
-                        if not self.flags['dry'].get():
+                        if not self.flags['dry'].get() and w.isActive and not self.stop.is_set():
                             pg.moveTo(w.left+move[0][0],w.top+move[0][1]);pg.dragTo(w.left+move[1][0],w.top+move[1][1],duration=.3)
-                else:
+                elif not board:
                     monster=find(img,'monster') if self.flags['monster'].get() else None
                     if monster:self.click(w,monster);self.log('Đã nhận diện quái')
-                    if self.flags['attackauto'].get():self.click(w,self.cfg['attack'])
+                    if self.flags['attackauto'].get():
+                        self.click(w,self.cfg['attack'])
                     if self.flags['healauto'].get():
                         x,y,ww,hh=self.cfg['hp'];roi=img[y:y+hh,x:x+ww]
                         if roi.size:
                             hsv=cv2.cvtColor(roi,cv2.COLOR_BGR2HSV)
                             red=((hsv[:,:,0]<12)|(hsv[:,:,0]>170))&(hsv[:,:,1]>90)
                             if red.mean()<self.cfg['threshold']:self.click(w,self.cfg['heal'])
-                    if self.flags['questauto'].get() and tick%10==0:self.click(w,self.cfg['quest'])
+                    if self.flags['questauto'].get():self.log('Auto nhiệm vụ chưa hiệu chỉnh, đã khóa để tránh click sai')
                     if self.flags['move'].get() and tick%8==0 and not self.flags['dry'].get():
                         pg.keyDown('right');time.sleep(.4);pg.keyUp('right')
                 tick+=1;self.stop.wait(max(.2,self.cfg['interval']))
