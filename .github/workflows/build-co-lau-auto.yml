@@ -13,12 +13,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install
+      - name: Install dependencies
         run: python -m pip install -r co-lau-auto/requirements.txt
-      - name: Build
+      - name: Validate Python syntax
+        run: python -m py_compile co-lau-auto/main.py
+      - name: Build Windows application
         working-directory: co-lau-auto
         run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name ThienDao_CoLau_Auto main.py
+      - name: Package ZIP and SHA256
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path 'co-lau-auto/dist/ThienDao_CoLau_Auto' -DestinationPath 'release/ThienDao_CoLau_Auto_V2_Windows.zip'
+          $hash = (Get-FileHash 'release/ThienDao_CoLau_Auto_V2_Windows.zip' -Algorithm SHA256).Hash
+          "$hash  ThienDao_CoLau_Auto_V2_Windows.zip" | Set-Content 'release/SHA256.txt'
+          @'
+          THIEN DAO AUTO - V2 THU NGHIEM
+          1. Giai nen file ZIP vao thu muc rieng.
+          2. Mo ThienDao_CoLau_Auto/ThienDao_CoLau_Auto.exe.
+          3. Bat Che do thu (khong click) truoc.
+          4. Neu trinh duyet/Windows canh bao nguy hiem, dung vo hieu hoa bao ve; hay quet file va kiem tra nguon.
+          5. Day la ban thu nghiem, khong dam bao auto hoat dong chinh xac.
+          '@ | Set-Content 'release/HUONG_DAN.txt'
       - uses: actions/upload-artifact@v4
         with:
-          name: ThienDao_CoLau_Auto_Windows
-          path: co-lau-auto/dist/ThienDao_CoLau_Auto/
+          name: ThienDao_CoLau_Auto_V2_Package
+          path: release/
+          if-no-files-found: error
