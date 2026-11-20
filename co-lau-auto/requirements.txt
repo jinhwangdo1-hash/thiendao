@@ -1,0 +1,4 @@
+pyautogui>=0.9.54
+numpy>=1.26,<3
+opencv-python>=4.8
+pyinstaller>=6.0
